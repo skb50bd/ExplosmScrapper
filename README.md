@@ -1,8 +1,8 @@
 # Explosm Scrapper
 
-A comic scrapper for [explosm.net](http://explosm.net)
+A scrapper for [explosm.net](http://explosm.net) comics.
 
-__Explosm Scrapper__ is a _cross platform_ console application built on `.NET Core`. It downloads all the published comics from [explosm.net](http://explosm.net) website.
+__Explosm Scrapper__ is a _cross platform_ console application built on `.NET Core`. It downloads all the published comics from [Explosm](http://explosm.net) website.
 
 ## Getting Started
 
