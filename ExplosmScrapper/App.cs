@@ -19,7 +19,6 @@ namespace ExplosmScrapper
             WriteLine("Starting Application...");
 
             var sw = new Stopwatch();
-            sw.Start();
 
             var comics = await FileHelper.GetComicsDb();
             if (comics.Any()) {
@@ -30,6 +29,7 @@ namespace ExplosmScrapper
                 Write("Enter choice [1-3]: ");
                 var choice = ReadLine();
 
+                sw.Start();
                 comics = choice switch {
                     "2" => await _explosm.FetchAllComics(),
                     "3" => comics,
@@ -38,6 +38,7 @@ namespace ExplosmScrapper
             }
             else
             {
+                sw.Start();
                 comics = await _explosm.FetchAllComics();
             }
 

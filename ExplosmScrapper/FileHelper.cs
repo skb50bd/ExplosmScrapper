@@ -12,7 +12,7 @@ namespace ExplosmScrapper
         private static readonly string ComicsDbFileName = "comics.json";
         private static readonly string ComicsDbFilePath = Path.Combine(DefaultSaveDirectory, ComicsDbFileName);
         private static readonly string FilesDirectory = Path.Combine(DefaultSaveDirectory, "files");
-        private static string GetFilePath(string fileName) => Path.Combine(FilesDirectory, fileName);
+        public static string GetFilePath(string fileName) => Path.Combine(FilesDirectory, fileName);
 
         private static void EnsureDefaultDirectoriesCreated()
         {
@@ -23,9 +23,21 @@ namespace ExplosmScrapper
                 Directory.CreateDirectory(FilesDirectory);
         }
 
-        public static bool Exists(string fileName) =>
-            File.Exists(
-                GetFilePath(fileName));
+        public static bool Exists(string fileName) {
+            var filePath = GetFilePath(fileName); 
+            
+            if (File.Exists(filePath)) {
+                var fi = new FileInfo(filePath);
+                if (fi.Length == 0) {
+                    File.Delete(filePath);
+                    return false;
+                } else {
+                    
+                }
+                return true;
+            }
+            return false;
+        }
         public static async Task SaveComicsDb(List<Comic> comics)
         {
             var json =

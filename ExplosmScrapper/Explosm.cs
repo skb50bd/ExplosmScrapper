@@ -8,7 +8,6 @@ using System.Threading.Tasks;
 using LtGt;
 using Microsoft.Extensions.Options;
 using static ExplosmScrapper.ConsolePrint;
-using static System.Console;
 using LtGtResult = Microsoft.FSharp.Core.FSharpResult<LtGt.HtmlDocument, string>;
 using Dasync.Collections;
 
@@ -21,12 +20,12 @@ namespace ExplosmScrapper
         private readonly ExplosmOptions _opts;
 
         public Explosm(
-            HttpClient client,
+            HttpClient http,
             DownloadHelper downloadHelper,
             IOptionsMonitor<ExplosmOptions> opts)
         {
             _downloader = downloadHelper;
-            _http = client;
+            _http = http;
             _opts = opts.CurrentValue;
         }
 
@@ -130,7 +129,8 @@ namespace ExplosmScrapper
             return lastIndex;
         }
 
-        private async Task<List<Comic>> FetchComics(IEnumerable<int> ids) {
+        private async Task<List<Comic>> FetchComics(IEnumerable<int> ids)
+        {
             var comics = new List<Comic>();
             var listLock = new object();
 
@@ -143,7 +143,7 @@ namespace ExplosmScrapper
             }
 
             WriteInfo($"Fetching {ids.Count()} comic info...");
-            
+
             var sw = new Stopwatch();
             sw.Start();
             await ids
@@ -154,10 +154,10 @@ namespace ExplosmScrapper
                         if (!(maybeComic is null)) addComic(maybeComic);
                     },
                     _opts.MaxDegreeOfParallelism);
-            
+
             sw.Stop();
 
-            WriteInfo($"Stopwatch: {sw.ElapsedMilliseconds} ms has elapsed.");
+            WriteInfo($"Stopwatch: {sw.ElapsedMilliseconds / 1000F:0.00} seconds has elapsed.");
             WriteInfo($"Found {comics.Count} comics out of {ids.Count()}.");
 
             return comics;
@@ -166,7 +166,7 @@ namespace ExplosmScrapper
         public async Task<List<Comic>> FetchAllComics()
         {
             var first = _opts.StartIndex;
-            var lastComicRemote =  await FindLastComicId();
+            var lastComicRemote = await FindLastComicId();
             var last = Math.Min(_opts.EndIndex, lastComicRemote);
 
             return await FetchComics(Enumerable.Range(first, last - first + 1));
@@ -177,7 +177,8 @@ namespace ExplosmScrapper
             var localMax = comics.Max(c => c.Id);
             var remoteMax = await FindLastComicId();
 
-            if (remoteMax > localMax) {
+            if (remoteMax > localMax)
+            {
                 var newComicIds = Enumerable.Range(localMax + 1, remoteMax - localMax);
                 var newComics = await FetchComics(newComicIds);
                 comics.AddRange(newComics);
@@ -189,25 +190,47 @@ namespace ExplosmScrapper
 
         public async Task DownloadComicFiles(List<Comic> comics)
         {
-            var sw = new Stopwatch();
-            sw.Start();
+            var failedDownloads = new List<Comic>();
+            var listLock = new object();
+
+            void addFailedItem(Comic failedItem)
+            {
+                lock (listLock!)
+                {
+                    failedDownloads?.Add(failedItem);
+                }
+            }
 
             WriteInfo("Downloading Comics...");
-            await comics
-                .ParallelForEachAsync(
-                    async comic =>
-                        await _downloader.Download(comic, false),
-                    _opts.MaxDegreeOfParallelism);
-            
-            sw.Stop();
+            var sw = new Stopwatch();
+            sw.Start();
+            await comics.ParallelForEachAsync(
+                async comic =>
+                {
+                    var success = await _downloader.Download(comic, false);
+                    if (!success)
+                    {
+                        addFailedItem(comic);
+                    }
+                },
+                _opts.MaxDegreeOfParallelism);
 
-            WriteInfo($"Stopwatch: {sw.ElapsedMilliseconds} ms has elapsed.");
+            if (failedDownloads.Any())
+            {
+                WriteInfo($"Retrying {failedDownloads.Count} Failed Downloads In Legacy Mode...");
+                failedDownloads
+                    .ForEach(comic => _downloader.DownloadLegacy(comic));
+            }
+
+            sw.Stop();
+            WriteInfo($"Stopwatch: {sw.ElapsedMilliseconds / 1000F:0.00} seconds has elapsed.");
             WriteInfo($"Comics download complete.");
         }
-        
+
         public void Dispose()
         {
             _http.Dispose();
+            _downloader.Dispose();
         }
     }
 }
