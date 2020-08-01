@@ -125,7 +125,7 @@ namespace ExplosmScrapper
             if (idMatch.Success)
             {
                 lastIndex = int.Parse(idMatch.Value) + 1;
-                WriteInfo($"Last Comic Id: {lastIndex}\n");
+                WriteInfo($"Last Comic Id: {lastIndex}.");
             }
             return lastIndex;
         }
@@ -142,8 +142,7 @@ namespace ExplosmScrapper
                 }
             }
 
-            WriteLine("\n");
-            WriteInfo("Fetching comic infos...");
+            WriteInfo($"Fetching {ids.Count()} comic info...");
             
             var sw = new Stopwatch();
             sw.Start();
@@ -167,9 +166,10 @@ namespace ExplosmScrapper
         public async Task<List<Comic>> FetchAllComics()
         {
             var first = _opts.StartIndex;
-            var last = await FindLastComicId();
+            var lastComicRemote =  await FindLastComicId();
+            var last = Math.Min(_opts.EndIndex, lastComicRemote);
 
-            return await FetchComics(Enumerable.Range(first, last - first));
+            return await FetchComics(Enumerable.Range(first, last - first + 1));
         }
 
         public async Task<List<Comic>> FetchNewComics(List<Comic> comics)

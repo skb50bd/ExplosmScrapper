@@ -13,22 +13,26 @@ namespace ExplosmScrapper
 
             if (dateStr is null) return null;
 
-            var success = 
+            var success =
                 DateTimeOffset.TryParseExact(
-                    dateStr.Value, 
-                    "yyyy.MM.dd", 
-                    CultureInfo.InstalledUICulture, 
-                    DateTimeStyles.AssumeUniversal, 
+                    dateStr.Value,
+                    "yyyy.MM.dd",
+                    CultureInfo.InstalledUICulture,
+                    DateTimeStyles.AssumeUniversal,
                     out var dto);
 
             if (!success) return null;
             return dto;
         }
 
-        private static string ExtractAuthorName(string comicInfo) {
-            var startIndex = comicInfo.IndexOf("by ") + 2;
-            var endIndex = comicInfo.LastIndexOf("\"");
-            var authorName = comicInfo[startIndex ..].Trim();
+        private static string ExtractAuthorName(string comicInfo)
+        {
+            var startIndex = comicInfo.IndexOf("by") + 3;
+            var authorName = 
+                startIndex < comicInfo.Length - 1
+                ? comicInfo[startIndex..].Trim()
+                : string.Empty;
+            
             return authorName;
         }
 
@@ -36,25 +40,26 @@ namespace ExplosmScrapper
         {
             var maybeDate = ExtractDate(comicInfo);
             var authorName = ExtractAuthorName(comicInfo);
-            return (authorName, maybeDate ?? DateTimeOffset.UnixEpoch); 
+            return (authorName, maybeDate ?? DateTimeOffset.UnixEpoch);
         }
 
-        private static string FlattenString(this string? str) => 
+        private static string FlattenString(this string? str) =>
             str?.Replace(' ', '_')
                 ?.ToLower()
-                ?? ""; 
+                ?? "";
 
-        public static string GetLocalSavePathForComic(this Comic comic) {
+        public static string GetLocalSavePathForComic(this Comic comic)
+        {
             var imageUri = new Uri(comic.ImageLink!);
-            var originalFileName = 
+            var originalFileName =
                 imageUri.LocalPath.Substring(
                     imageUri.LocalPath.LastIndexOf("/") + 1);
-            
-            var localPath = 
-                comic.Author is null
+
+            var localPath =
+                string.IsNullOrWhiteSpace(comic.Author)
                 ? originalFileName
                 : $"{comic.Author.FlattenString()}_{originalFileName}";
-                
+
             return localPath;
         }
     }
