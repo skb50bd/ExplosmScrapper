@@ -1,6 +1,7 @@
 ﻿using System.IO;
 using System.Net;
 using System.Net.Http;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -8,7 +9,7 @@ namespace ExplosmScrapper
 {
     internal static class Program
     {
-        static void Main()
+        static async Task Main()
         {
             var serviceCollection = new ServiceCollection();
             serviceCollection.ConfigureServices();
@@ -18,14 +19,15 @@ namespace ExplosmScrapper
 
             // run app
             var app = serviceProvider.GetService<App>();
-            app.Run().Wait();           
+            await app.Run();
         }
 
-        static IServiceCollection ConfigureServices(this IServiceCollection services) {
-            services.AddScoped<HttpClient>();
-            services.AddScoped<WebClient>();
-            services.AddScoped<Explosm>();
-            services.AddScoped<DownloadHelper>();
+        static IServiceCollection ConfigureServices(this IServiceCollection services)
+        {
+            services.AddTransient<HttpClient>();
+            services.AddTransient<WebClient>();
+            services.AddTransient<Explosm>();
+            services.AddTransient<DownloadHelper>();
             services.AddSingleton<App>();
 
             // build configuration
@@ -36,7 +38,7 @@ namespace ExplosmScrapper
 
             services.AddOptions();
             services.Configure<ExplosmOptions>(configuration.GetSection("Explosm"));
-            
+
             return services;
         }
     }

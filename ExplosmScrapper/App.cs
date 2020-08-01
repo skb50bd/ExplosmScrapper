@@ -1,62 +1,56 @@
+using System.Linq;
 using System.Diagnostics;
 using System.Threading.Tasks;
 using static System.Console;
 using static ExplosmScrapper.ConsolePrint;
-using Microsoft.Extensions.Options;
 
 namespace ExplosmScrapper
 {
     public class App
     {
         private readonly Explosm _explosm;
-        private readonly DownloadHelper _helper;
-        private readonly ExplosmOptions _opts;
-        public App(
-            Explosm explosm,
-            DownloadHelper helper,
-            IOptionsMonitor<ExplosmOptions> opts)
+        public App(Explosm explosm)
         {
             _explosm = explosm;
-            _helper = helper;
-            _opts = opts.CurrentValue;
         }
 
         public async Task Run()
         {
-            WriteLine("Starting Application...\n");
+            WriteLine("Starting Application...");
 
             var sw = new Stopwatch();
             sw.Start();
 
-            var first = _opts.StartIndex;
-            var last = _opts.EndIndex;
+            var comics = await FileHelper.GetComicsDb();
+            if (comics.Any()) {
+                WriteLine("Do you want to sync ComicsDB?");
+                WriteLine("1. Yes - Incremental Sync (default)");
+                WriteLine("2. Yes - Full Sync");
+                WriteLine("3. No");
+                Write("Enter choice [1-3]: ");
+                var choice = ReadLine();
 
-            for (var c = first; c <= last; c++)
-            {
-                var link = _opts.BaseUrl + c; 
-                WriteInfo($"\n{link}");
-
-                try
-                {
-                    var item = await _explosm.GetDownloadItem(link);
-
-                    if (!(item is null))
-                    {
-                        _helper.Download(item, true);
-                    }
-                    else
-                    {
-                        WriteError("Nothing found");
-                    }
-                }
-                catch
-                {
-                    WriteError($"Error Occurred for /comics/{c}");
-                }
+                comics = choice switch {
+                    "2" => await _explosm.FetchAllComics(),
+                    "3" => comics,
+                    _ => await _explosm.FetchNewComics(comics)
+                };
             }
+            else
+            {
+                comics = await _explosm.FetchAllComics();
+            }
+
+            comics = comics.OrderBy(c => c.Id).ToList();
+            await FileHelper.SaveComicsDb(comics);
+
+            // Ensure Local Availability
+            await _explosm.DownloadComicFiles(comics);
+
             _explosm.Dispose();
             sw.Stop();
-            WriteInfo($"Took {(sw.ElapsedMilliseconds / 1000):0.00} seconds");
+            WriteLine("\n");
+            WriteInfo($"Took {(sw.ElapsedMilliseconds / 1000F):0.00} seconds");
         }
     }
 }

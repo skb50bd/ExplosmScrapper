@@ -1,67 +1,213 @@
-
+using System.Diagnostics;
+using System.Collections.Generic;
 using System;
 using System.Linq;
 using System.Net.Http;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using LtGt;
 using Microsoft.Extensions.Options;
 using static ExplosmScrapper.ConsolePrint;
+using static System.Console;
+using LtGtResult = Microsoft.FSharp.Core.FSharpResult<LtGt.HtmlDocument, string>;
+using Dasync.Collections;
 
 namespace ExplosmScrapper
 {
     public class Explosm : IDisposable
     {
-        private readonly HttpClient _client;
-        private readonly DownloadHelper _helper;
+        private readonly HttpClient _http;
+        private readonly DownloadHelper _downloader;
         private readonly ExplosmOptions _opts;
 
         public Explosm(
-            HttpClient client, 
-            DownloadHelper helper,
+            HttpClient client,
+            DownloadHelper downloadHelper,
             IOptionsMonitor<ExplosmOptions> opts)
         {
-            _client = client;
-            _helper = helper;
+            _downloader = downloadHelper;
+            _http = client;
             _opts = opts.CurrentValue;
         }
 
-        public async Task<DownloadItem> GetDownloadItem(string pageUrl)
+        private async Task<LtGtResult?> FetchHtml(string pageUrl)
         {
             string html;
 
             try
             {
-                html = await _client.GetStringAsync(pageUrl);
+                html = await _http.GetStringAsync(pageUrl);
             }
             catch
             {
-                WriteError($"Error Occurred Getting Page: {pageUrl}");
+                WriteError($"Error Fetching Page: {pageUrl}");
                 return null;
             }
 
             var result = Html.TryParseDocument(html);
-
-            if (!result.IsOk)
-                return null;
-
-            var link =
-                result.ResultValue
-                      .GetElementById(_opts.ImageId)
-                     ?.Attributes
-                      .FirstOrDefault(a => a.Name == "src")
-                     ?.Value;
-
-            var comicInfo = 
-                result.ResultValue
-                      .GetElementById(_opts.ImageId)
-                      .GetInnerText();
-            return new DownloadItem { ImageLink = $"http:{link}", ComicInfo = comicInfo };
+            return result;
         }
 
+        private async Task<Comic?> FetchComic(int id)
+        {
+            var pageUrl = _opts.BaseUrl + id;
+            var result = await FetchHtml(pageUrl);
+            if (result is null) return null;
+
+            var validResult = (LtGtResult)result;
+            var link =
+                validResult.ResultValue
+                      .GetElementById(_opts.ImageId)
+                      ?.Attributes
+                      .FirstOrDefault(a => a.Name == "src")
+                      ?.Value;
+
+            var comicInfo =
+                validResult.ResultValue
+                      .GetElementById(_opts.InfoId)
+                      .GetInnerText();
+
+            if (link is null || comicInfo is null)
+                return null;
+
+            var (author, publishedAt) = comicInfo.ParseComicInfo();
+            var imageLink =
+                link.StartsWith("http")
+                ? link
+                : $"http:{link}";
+
+            var comic = new Comic
+            {
+                Id = id,
+                Author = author,
+                PublishedAt = publishedAt,
+                PageUrl = pageUrl,
+                ImageLink = imageLink
+            };
+
+            var fallbackFileName = $"no_name_{Guid.NewGuid()}";
+
+            try
+            {
+                comic.LocalFileName = comic.GetLocalSavePathForComic();
+            }
+            catch (Exception e)
+            {
+                comic.LocalFileName = fallbackFileName;
+                WriteError($"Error getting file name for: {imageLink}. Fallback: {fallbackFileName}.\n{e.Message}");
+            }
+
+            return comic;
+        }
+
+        private async Task<int> FindLastComicId()
+        {
+            var result = await FetchHtml(_opts.BaseUrl + "latest");
+            if (result is null || (result?.IsError ?? false))
+                return _opts.EndIndex;
+
+            var validResult = (LtGtResult)result!;
+
+            var secondLastHref =
+                validResult.ResultValue
+                    .GetElementsByClassName("nav-previous").FirstOrDefault()
+                    ?.Attributes
+                    .FirstOrDefault(a => a.Name == "href")
+                    ?.Value;
+
+            if (secondLastHref is null)
+                return _opts.EndIndex;
+
+            var regex = new Regex(@"\b\d+\b");
+            var idMatch = regex.Match(secondLastHref);
+
+            var lastIndex = _opts.EndIndex;
+            if (idMatch.Success)
+            {
+                lastIndex = int.Parse(idMatch.Value) + 1;
+                WriteInfo($"Last Comic Id: {lastIndex}\n");
+            }
+            return lastIndex;
+        }
+
+        private async Task<List<Comic>> FetchComics(IEnumerable<int> ids) {
+            var comics = new List<Comic>();
+            var listLock = new object();
+
+            void addComic(Comic newComic)
+            {
+                lock (listLock!)
+                {
+                    comics?.Add(newComic);
+                }
+            }
+
+            WriteLine("\n");
+            WriteInfo("Fetching comic infos...");
+            
+            var sw = new Stopwatch();
+            sw.Start();
+            await ids
+                .ParallelForEachAsync(
+                    async id =>
+                    {
+                        var maybeComic = await FetchComic(id);
+                        if (!(maybeComic is null)) addComic(maybeComic);
+                    },
+                    _opts.MaxDegreeOfParallelism);
+            
+            sw.Stop();
+
+            WriteInfo($"Stopwatch: {sw.ElapsedMilliseconds} ms has elapsed.");
+            WriteInfo($"Found {comics.Count} comics out of {ids.Count()}.");
+
+            return comics;
+        }
+
+        public async Task<List<Comic>> FetchAllComics()
+        {
+            var first = _opts.StartIndex;
+            var last = await FindLastComicId();
+
+            return await FetchComics(Enumerable.Range(first, last - first));
+        }
+
+        public async Task<List<Comic>> FetchNewComics(List<Comic> comics)
+        {
+            var localMax = comics.Max(c => c.Id);
+            var remoteMax = await FindLastComicId();
+
+            if (remoteMax > localMax) {
+                var newComicIds = Enumerable.Range(localMax + 1, remoteMax - localMax);
+                var newComics = await FetchComics(newComicIds);
+                comics.AddRange(newComics);
+                WriteInfo($"Fetched {newComics.Count} new comics.\n");
+            }
+
+            return comics;
+        }
+
+        public async Task DownloadComicFiles(List<Comic> comics)
+        {
+            var sw = new Stopwatch();
+            sw.Start();
+
+            WriteInfo("Downloading Comics...");
+            await comics
+                .ParallelForEachAsync(
+                    async comic =>
+                        await _downloader.Download(comic, false),
+                    _opts.MaxDegreeOfParallelism);
+            
+            sw.Stop();
+
+            WriteInfo($"Stopwatch: {sw.ElapsedMilliseconds} ms has elapsed.");
+            WriteInfo($"Comics download complete.");
+        }
+        
         public void Dispose()
         {
-            _client.Dispose();
-            _helper.Dispose();
+            _http.Dispose();
         }
     }
 }
