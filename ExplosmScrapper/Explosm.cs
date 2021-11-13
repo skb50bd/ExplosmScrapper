@@ -126,6 +126,7 @@ namespace ExplosmScrapper
                 lastIndex = int.Parse(idMatch.Value) + 1;
                 WriteInfo($"Last Comic Id: {lastIndex}.");
             }
+
             return lastIndex;
         }
 
