@@ -1,45 +1,40 @@
-﻿using System.IO;
+﻿using ExplosmScrapper;
 using System.Net;
-using System.Net.Http;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace ExplosmScrapper
-{
-    internal static class Program
-    {
-        static async Task Main()
-        {
-            var serviceCollection = new ServiceCollection();
-            serviceCollection.ConfigureServices();
+ServiceCollection serviceCollection = new();
+serviceCollection.AddTransient<HttpClient>();
+serviceCollection.AddTransient<WebClient>();
+serviceCollection.AddTransient<Explosm>();
+serviceCollection.AddTransient<DownloadHelper>();
+serviceCollection.AddSingleton<App>();
 
-            // create service provider
-            var serviceProvider = serviceCollection.BuildServiceProvider();
+var environmentName =
+    Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
+    ?? Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT")
+    ?? "Production";
 
-            // run app
-            var app = serviceProvider.GetService<App>();
-            await app.Run();
-        }
+var configuration =
+    new ConfigurationBuilder()
+        .SetBasePath(Directory.GetCurrentDirectory())
+        .AddJsonFile(
+            path: $"appsettings.{environmentName}.json",
+            optional: true,
+            reloadOnChange: true
+        )
+        .AddEnvironmentVariables()
+        .AddCommandLine(args)
+        .Build();
 
-        static IServiceCollection ConfigureServices(this IServiceCollection services)
-        {
-            services.AddTransient<HttpClient>();
-            services.AddTransient<WebClient>();
-            services.AddTransient<Explosm>();
-            services.AddTransient<DownloadHelper>();
-            services.AddSingleton<App>();
+serviceCollection.AddOptions();
+serviceCollection.Configure<ExplosmOptions>(configuration.GetSection("Explosm"));
 
-            // build configuration
-            var configuration = new ConfigurationBuilder()
-                .SetBasePath(Directory.GetCurrentDirectory())
-                .AddJsonFile("appsettings.json", false)
-                .Build();
+var serviceProvider =
+    serviceCollection.BuildServiceProvider();
 
-            services.AddOptions();
-            services.Configure<ExplosmOptions>(configuration.GetSection("Explosm"));
+var app =
+    serviceProvider.GetService<App>()
+    ?? throw new NullReferenceException("App is null");
 
-            return services;
-        }
-    }
-}
+await app.Run();
